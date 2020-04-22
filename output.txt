@@ -1,0 +1,342 @@
+INTRO
+Symmetric encryption algorithms has purpose to scramble data with the key and unscramble scrambled data with the same key.
+This algorithm supports symmetric encryption and has unusual (optional) message integrity mechanism
+Most of algorithms does encryption from begin to end.
+Most protocols on the web keeps predictable protocol data at the begin of the message,
+So, most attacks like brute force will be focused on well knowing part of message to break in, like "HTTP/" or "GET", "POST" which are part of http protocol
+This algorithm encrypts messages in reverse order, from end to begin, each byte of cipher data is dependent of previous ancestors(in range from 4 to 16) in decryption process in reverse order,
+so if you change a single bit of cipher data, you will not be able to decrypt rest of data to original plain text
+Unusual message integrity mechanism is done by collecting last 32 and first 32 bytes of plain message(if message is less,
+then whole content is used) and hash that content with the shared key, resulting hash is checksum hash,
+Then hashing the shared key and use hash result to encrypt content of message,
+then hashing hash of the hash of shared key H(H(shared key)) and use to encrypt checksum hash, checksum hash in appended to the end of message cipher text.
+Since modifying a single byte of cipher text will result as wrong decryption rest of the message(in reverse order),
+it is more then enough to use message integrity scheme like this which saves hash computation compared to other schemes
+which hashing whole message content and slowing down if message is large.
+
+  H = (hash function ), shared key=any key of 256 bits created by key exchange or distributed),
+
+  /-----------------------------------------------------------------------\
+  |                             CHECKSUM                                  |
+  |  H(shared key | last 32 bytes of message | first 32 bytes of message) |
+  |                                                                       |
+  \-----------------------------------------------------------------------/
+                                    /
+                                   /
+  hash key1 = H(shared key), hash key2=H(hash key1)
+     \                               \
+      \encrypted with hash key1       \encrypted with hash key 2
+  /--------------------------------------------------------\
+  | encrypted message               | encrypted checksum   |
+  | content..                       |  hash - 32 bytes     |
+  \--------------------------------------------------------/
+
+
+Message integrity check during the decryption is done by extracting checksum hash, decrypting it with
+hash of the hash of shared key H(H(shared key)) and use that as checksum hash, then decrypting rest of the message with hash of the shared key H(shared key),
+Then extract first and last 32 bytes of message, hash them along with shared key and compare its result vs checksum hash. If hashes matches, then message is intact
+
+
+	ENCRYPTION ALGORITHM
+
+First we need to observe how does 1 byte (uint8_t) type in C/C++ work
+
+uint8_t l_byte = (uint8_t)0; l_byte -= 6;
+std::cout  << unsigned(l_byte) << std::endl;
+This will result 250, since range of byte is 0-255 or 256-6=250 or ((0-6)%256+256)%256 = 250
+
+l_byte += 10;std::cout  << unsigned(l_byte) << std::endl;
+This will output 4 since 250+10=260-256=4 or (250+10)%256=4
+So uint8_t is like a clock, hi is spinning in that range 0-255
+
+By knowing that and having number 232, I am sure you can not be sure if I get that number by 1000 % 256 or 1256 % 256.. etc..
+
+ENCRYPTING
+
+Now let say we have an 256 bit key(32 bytes), 96 bit nonce(12 bytes) and plain text of 10 bytes with value 'a'
+it look like this [97,97,97,97,97,97,97,97,97,97] in our clock range and will name variable as text.
+let say our key is filled with numbers of value 200 (32*200) are stored in our key
+nonce will be filled with same values 200 (12*200)
+at the start of encryption we will create new uint8_t variable called key_sum and put sum value of key (32*200)%256=0
+Now we will initialize nonce by adding value of each key value to it like nonce[0] += key[0] .. nonce[0]+=key[12].. etc..
+We will end up with: 
+
+nonce[0] = 32
+nonce[1] = 32
+nonce[2] = 32
+nonce[3] = 32
+nonce[4] = 32
+nonce[5] = 32
+nonce[6] = 32
+nonce[7] = 32
+nonce[8] = 88
+nonce[9] = 88
+nonce[10] = 88
+nonce[11] = 88
+
+Also we will now create new uint8_t variable called nonce_sum and put sum value of nonce values =  (32*8+(88+88+88+88)) % 256 = 96
+This step of changing nonce value via key is done each 4 byte after the one which position gives result pos % 4 = 0
+now we have set up all variables in place to start working with plain text encryption 
+we are starting from the end of plain text, so since we have 10 bytes(positions 0 ... 9), we are at position 9 (reverse begin position)
+
+scrambled_byte= text[pos] + key_sum+nonce_sum + key[pos%32] + nonce[pos%12]
+225 = 97 + 0 + 96 + 200 + 88
+
+We have done with scrambling this byte, now we will include this byte in process of scrambling next successor of this byte by modifying key value at index key[pos%32](key[9]) by formula
+
+key[pos%32]+= scrambled_byte+nonce[11]+nonce_sum
+key[7] = 200+225+88+96 = 97 by our clock (200+225+88+96)%256
+So our scrambled message will look like 225 so far.
+Now we need to scramble next byte which is on position 8, this is a index where rule applies (pos % 4 == 0) so we do step from begin
+nonce[0] += key[0] .. nonce[0]+=key[12].. etc.. and end up with: 
+
+nonce[0] = 120
+nonce[1] = 120
+nonce[2] = 120
+nonce[3] = 120
+nonce[4] = 120
+nonce[5] = 120
+nonce[6] = 120
+nonce[7] = 120
+nonce[8] = 232
+nonce[9] = 129
+nonce[10] = 232
+nonce[11] = 232
+
+So now we continue on next byte
+scrambled_byte= text[pos(8)] + key_sum+nonce_sum + key[pos%32] + nonce[pos%12]
+113 = 97 + 0 + 96 + 200 + 232
+key[pos%32]+= scrambled_byte+nonce[11]+nonce_sum
+key[8] = 200+113+232+96 = 129, and so on...eventually, our cipher text will look like:
+
+[177, 89, 89, 89, 89, 1, 1, 1, 113,225]
+
+All rules apply for decryption process except: 
+
+scrambled_byte= text[pos(8)] + key_sum+nonce_sum + key[pos%32] + nonce[pos%12]
+key[pos%32]+= scrambled_byte+nonce[11]+nonce_sum
+
+BECOMES
+
+plain_byte= scrambled_text[pos] -( key_sum+nonce_sum + key[pos%32] + nonce[pos%12])
+key[9]+= scrambled_text[pos]+nonce[11]+nonce_sum
+Translate:  97=225-(0 + 96 + 200 + 88) or by our clock (225-(0 + 96 + 200 + 88))+256
+if scrambled_text[pos] -( key_sum+nonce_sum + key[pos%32] + nonce[pos%12])+256 is still negative number,
+we keep adding 256 until we have a positive value but that will computer automatically do for us in our code
+key[9]= 200+225+88+96 = 97 by our clock (% 256)
+that is all about this algorithm, you can see samples in practice
+
+You probably want to scroll up and read details about algorithm first before you go any further. 
+Press key 'y' to start tests and see examples in practice, any other key to exit
+
+NEW TEST BEGIN
+
+Simple example view of data decryption/encryption
+Encrypting data:
+0000: 61 61 61 61 61 61 61 61 61 61                    aaaaaaaaaa
+
+With key:
+0000: c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8  ................
+0016: c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8  ................
+
+End nonce: 
+0000: c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8 c8              ............
+
+Encrypting..
+Encrypted data view: 
+0000: b1 59 59 59 59 01 01 01 71 e1                    .YYYY...q.
+
+Decrypting...
+Decrypted data view
+0000: 61 61 61 61 61 61 61 61 61 61                    aaaaaaaaaa
+
+ENCRYPTION/DECRYPTION TEST PASSED
+NEW TEST END
+
+Next test is view of how it looks like when you modify one byte in cipher text
+Press key 'y' to see
+
+NEW TEST BEGIN
+
+Simple example view of data decryption/encryption WITH MODIFIED ENCRYPTED DATA
+If you change at least one bit on cipher text, by decrypting you will not been able to decrypt rest of the data
+Btw, AE mode is designed to detect such changes, so it can validate if data are modified or not
+But regular decryption is not able to say if decryption is successful or not
+This test will show output of decrypted data after one byte is modified, if decrypted data does not match the original data, test is successful
+Encrypting data:
+0000: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0016: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0032: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0048: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0064: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0080: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0096: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0112: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+
+With key:
+0000: 31 32 33 34 35 36 37 38 39 30 31 32 33 34 35 36  1234567890123456
+0016: 37 38 39 30 31 32 33 34 35 36 37 38 39 30 31 32  7890123456789012
+
+End nonce: 
+0000: 31 32 33 34 35 36 37 38 39 30 31 32              123456789012
+
+Encrypting..
+Encrypted data view: 
+0000: 5f 44 e8 6a 7c fa 43 a2 d0 24 20 90 bf aa 30 94  _D.j|.C..$ ...0.
+0016: ff ee 23 28 96 60 c0 78 c0 64 1f 26 7d b4 7c aa  ..#(.`.x.d.&}.|.
+0032: e4 e4 14 d0 c7 66 f7 42 95 e0 fc b0 11 f2 2a 66  .....f.B......*f
+0048: 11 a8 9f 16 34 cc c7 76 c0 66 20 32 40 ee e4 06  ....4..v.f 2@...
+0064: c2 2c 1e 1a 18 12 69 68 e9 56 e3 82 6b 22 66 b4  .,....ih.V..k"f.
+0080: 55 82 ff 24 ba 10 2a 46 fb 9e 00 64 d0 a0 5b 0c  U..$..*F...d..[.
+0096: 18 58 1d e2 a7 e0 6c 86 a8 2e 54 7a 77 0a 33 5c  .X....l...Tzw.3\
+0112: 85 78 95 62 c6 3c 44 4c e5 54 5c 64 6c b8 bd b8  .x.b.<DL.T\dl...
+
+modifying byte at position 57 from hex value 66 to 35
+Decrypting...
+Decrypted data view
+0000: 30 de 30 30 30 30 30 30 30 30 30 30 30 4b 30 30  0.00000000000K00
+0016: 30 30 30 30 30 30 30 30 30 e9 30 30 30 30 30 30  000000000.000000
+0032: 30 30 30 30 30 25 30 30 30 30 30 30 30 30 30 30  00000%0000000000
+0048: 30 92 30 30 30 30 30 30 30 ff 30 30 30 30 30 30  0.0000000.000000
+0064: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0080: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0096: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+0112: 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30  0000000000000000
+
+ENCRYPTION/DECRYPTION TEST WITH INVALIDATED BYTE PASSED
+
+NEW TEST END
+Next test is to measure performance how fast MB per second can be processed
+Press key 'y' to see
+
+NEW TEST BEGIN
+
+Traffic test 1 of AE(Authenticated Encryption) began with 105472 operations and 10240 bytes per operation to (encrypt or decrypt)
+total data size to process per test method: 1030 MB estimated time about few seconds
+
+Encryption test time: 6112 milliseconds, 168.521 MB/per second on one cpu core
+Decryption test time: 5963 milliseconds, 172.732 MB/per second on one cpu core
+Traffic test 1 end
+
+Traffic test 2 of encryption without message integrity check began with 105472 operations and 10240 bytes per operation to (encrypt or decrypt)
+total data size to process per test method: 1030 MB estimated time shorter then last test
+
+Encryption test time: 5767 milliseconds, 178.602 MB/per second on one cpu core
+Decryption test time: 5793 milliseconds, 177.801 MB/per second on one cpu core
+Traffic test 2 end
+
+NEW TEST END
+
+Next test is create encrypted message with message integrity mode
+Press key 'y' to see
+
+NEW TEST BEGIN
+
+in this test we will show AE message print 
+real size of cipher text will be 128+32  128= data size + 32=checksum size
+Encrypting data:
+0000: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0016: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0032: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0048: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0064: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0080: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0096: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0112: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+
+With key:
+0000: 31 32 33 34 35 36 37 38 39 30 31 32 33 34 35 36  1234567890123456
+0016: 37 38 39 30 31 32 33 34 35 36 37 38 39 30 31 32  7890123456789012
+
+End nonce: 
+0000: 31 32 33 34 35 36 37 38 39 30 31 32              123456789012
+
+Encrypting..
+Encrypted data view: 
+0000: d2 4b f4 6c e5 69 8d a8 37 89 d9 0b bc 8e e5 d5  .K.l.i..7.......
+0016: 64 bb 00 1c fc 08 5a af f7 71 9c 08 72 df 51 b7  d.....Z..q..r.Q.
+0032: cc 40 d0 99 14 d1 99 32 18 dc 0b b8 2a 8e 15 99  .@.....2....*...
+0048: 89 b1 d3 b9 d0 b4 3b 19 83 af b0 a5 bd bd 5f 8b  ......;......._.
+0064: f1 36 2b df a7 cc 2a 40 bd 54 25 d9 33 c5 6d 06  .6+...*@.T%.3.m.
+0080: eb 70 87 f7 ca a5 3c 54 47 d0 40 78 3e 44 1f d9  .p....<TG.@x>D..
+0096: b5 7b b4 0b e8 a5 2e f1 17 c5 11 19 14 b6 41 3b  .{............A;
+0112: 0c 8b c5 7d 0b fd d5 b2 ce e5 57 4d 9c 6e b6 7d  ...}......WM.n.}
+0128: bd 83 05 57 4c 74 3c 02 11 54 12 65 ff f4 96 ec  ...WLt<..T.e....
+0144: 86 2c c6 d0 74 51 2b 2d 10 0a 8b 4f 07 e5 4d 1b  .,..tQ+-...O..M.
+
+Decrypting...
+Decrypted data view: 
+0000: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0016: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0032: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0048: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0064: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0080: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0096: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0112: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+
+
+AE MESSAGE ENCRYPT/DECRYPT TEST, TEST PASSED
+NEW TEST END
+
+Next test is to detect modification of message
+Press key 'y' to see
+
+NEW TEST BEGIN
+
+Detecting integrity of modified text cipher
+in this test we will modify byte at index 80 of 128 bytes of data size 
+real size of cipher text will be 128+32  128= data size + 32=checksum size
+Encrypting data:
+0000: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0016: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0032: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0048: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0064: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0080: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0096: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0112: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+
+With key:
+0000: 31 32 33 34 35 36 37 38 39 30 31 32 33 34 35 36  1234567890123456
+0016: 37 38 39 30 31 32 33 34 35 36 37 38 39 30 31 32  7890123456789012
+
+End nonce: 
+0000: 31 32 33 34 35 36 37 38 39 30 31 32              123456789012
+
+Encrypting..
+Encrypted data view: 
+0000: d2 4b f4 6c e5 69 8d a8 37 89 d9 0b bc 8e e5 d5  .K.l.i..7.......
+0016: 64 bb 00 1c fc 08 5a af f7 71 9c 08 72 df 51 b7  d.....Z..q..r.Q.
+0032: cc 40 d0 99 14 d1 99 32 18 dc 0b b8 2a 8e 15 99  .@.....2....*...
+0048: 89 b1 d3 b9 d0 b4 3b 19 83 af b0 a5 bd bd 5f 8b  ......;......._.
+0064: f1 36 2b df a7 cc 2a 40 bd 54 25 d9 33 c5 6d 06  .6+...*@.T%.3.m.
+0080: eb 70 87 f7 ca a5 3c 54 47 d0 40 78 3e 44 1f d9  .p....<TG.@x>D..
+0096: b5 7b b4 0b e8 a5 2e f1 17 c5 11 19 14 b6 41 3b  .{............A;
+0112: 0c 8b c5 7d 0b fd d5 b2 ce e5 57 4d 9c 6e b6 7d  ...}......WM.n.}
+0128: bd 83 05 57 4c 74 3c 02 11 54 12 65 ff f4 96 ec  ...WLt<..T.e....
+0144: 86 2c c6 d0 74 51 2b 2d 10 0a 8b 4f 07 e5 4d 1b  .,..tQ+-...O..M.
+
+modifying byte at position 80 from hex value eb to 77
+Decrypting...
+Decrypted data view: 
+0000: 66 66 66 66 02 66 66 66 66 66 66 66 66 66 66 66  ffff.fffffffffff
+0016: 1a 66 66 66 66 66 66 66 66 66 66 66 4a 66 66 66  .fffffffffffJfff
+0032: 66 66 66 66 66 66 66 66 ee 66 66 66 66 66 66 66  ffffffff.fffffff
+0048: da 66 66 66 92 66 66 66 66 66 66 66 66 66 66 66  .fff.fffffffffff
+0064: 36 66 66 66 66 66 66 66 66 66 66 66 da 66 66 66  6fffffffffff.fff
+0080: f2 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  .fffffffffffffff
+0096: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+0112: 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66 66  ffffffffffffffff
+
+
+MODIFICATION OF MESSAGE DETECTED, TEST PASSED
+NEW TEST END
+
+That is all
+I tried to implement some kind of attack, but I have nothing effective so far, best what can came up is brute force
+If you have time and would like to research this algorithm, I would like to have results eventually if possible
+This project is licensed under MIT LICENSE.
+Thank you for reading and have a nice day.;)
+Best regards,
+          zninja

@@ -63,13 +63,12 @@ l_nonce[3] += l_key[27];\
 l_nonce[4] += l_key[28];\
 l_nonce[5] += l_key[29];\
 l_nonce[6] += l_key[30];\
-l_nonce[7] += l_key[31];
-/*
+l_nonce[7] += l_key[31];\
 l_nonce[8] += l_key[0];\
 l_nonce[9] += l_key[1];\
 l_nonce[10] += l_key[2];\
 l_nonce[11] += l_key[3];
-*/
+
 
 #define KEY_SUM(l_key_t,a_key)\
 l_key_t+=a_key[0];\

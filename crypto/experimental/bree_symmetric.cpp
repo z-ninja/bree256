@@ -327,12 +327,13 @@ void bree256_do_encrypt(const unsigned char*a_plainText,size_t a_textSize,bree25
     NONCE_SUM(l_nonce_sum,l_nonce);
     for(int i=a_textSize-1; i>=0; i--)
     {
-        if((i % 4)==0)
+        /*if((i % 4)==0)
         {
             NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
-        }
+        }*/
         a_out[i] = a_plainText[i]+(l_key_sum+l_nonce_sum+l_key[i%32]+l_nonce[i%12]);
         l_key[i%32]+=a_out[i]+l_nonce[11]+l_nonce_sum;
+        NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
     }
 }
 
@@ -351,12 +352,13 @@ void bree256_do_decrypt(const unsigned char* a_encryptedText,size_t a_textSize,b
     NONCE_SUM(l_nonce_sum,l_nonce);
     for(int i=a_textSize-1; i>=0; i--)
     {
-        if((i % 4)==0)
+       /* if((i % 4)==0)
         {
             NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
-        }
+        }*/
         a_out[i] = a_encryptedText[i]-(l_key_sum+l_nonce_sum+l_key[i%32]+l_nonce[i%12]);
         l_key[i%32]+=a_encryptedText[i]+l_nonce[11]+l_nonce_sum;
+        NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
     }
 }
 

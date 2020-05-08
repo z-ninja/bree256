@@ -32,6 +32,16 @@ namespace bree
 namespace experimental
 {
 #define NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)\
+l_key_char = l_key[11];\
+l_key_char += l_key[23];\
+l_key_char -= l_key[3];\
+l_key_char += l_nonce_char_11;\
+l_key_char *= 2;\
+l_nonce[11] = static_cast<uint8_t>(l_key_char % 256);
+
+/*
+
+#define NONCE_KEY_BLOCK_BEGIN(l_nonce,l_key)\
 l_nonce[0] += l_key[0];\
 l_nonce[1] += l_key[1];\
 l_nonce[2] += l_key[2];\
@@ -67,8 +77,9 @@ l_nonce[7] += l_key[31];\
 l_nonce[8] += l_key[0];\
 l_nonce[9] += l_key[1];\
 l_nonce[10] += l_key[2];\
-l_nonce[11] += l_key[3];
+l_nonce[11] += l_key[3];\
 
+*/
 
 #define KEY_SUM(l_key_t,a_key)\
 l_key_t+=a_key[0];\
@@ -102,7 +113,8 @@ l_key_t+=a_key[27];\
 l_key_t+=a_key[28];\
 l_key_t+=a_key[29];\
 l_key_t+=a_key[30];\
-l_key_t+=a_key[31];
+l_key_t+=a_key[31];\
+l_key_t+= 5120;
 
 #define KEY_L_INIT(l_key,a_key)\
 l_key[0]=a_key[0];\
@@ -310,28 +322,54 @@ l_nonce_sum+=l_nonce[8];\
 l_nonce_sum+=l_nonce[9];\
 l_nonce_sum+=l_nonce[10];\
 l_nonce_sum+=l_nonce[11];\
+l_nonce_sum += 5120;
+union mix_t
+{
+    std::uint8_t theBytes[4];
+    std::uint32_t theDWord;
 
+
+};
 void bree256_do_encrypt(const unsigned char*a_plainText,size_t a_textSize,bree256_key a_key,bree256_nonce a_nonce,unsigned char*a_out)
 {
     bree256_nonce l_nonce;
     bree256_key l_key;
-    uint8_t l_key_sum = 0;
-    uint8_t l_nonce_sum = 0;
-
+    int16_t l_key_sum = 0;
+    int16_t l_nonce_sum = 0;
+    int16_t l_pla_char = 0;
+    int16_t l_key_char = 0;
+    int16_t l_nonce_char = 0;
+    int16_t l_nonce_char_11 = 0;
+    int16_t l_enc_char = 0;
+    int f_nonce_index = 0;
+    int f_key_index = 0;
 
     NONCE_L_INIT(l_nonce,a_nonce)
     KEY_L_INIT(l_key,a_key)
     KEY_SUM(l_key_sum,a_key)
-    NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
+    //NONCE_KEY_BLOCK_BEGIN(l_nonce,l_key)
     NONCE_SUM(l_nonce_sum,l_nonce);
     for(int i=a_textSize-1; i>=0; i--)
     {
-        /*if((i % 4)==0)
+        f_key_index = i % 32;
+        l_pla_char = a_plainText[i];
+        l_key_char = l_key[f_key_index];
+        l_nonce_char = l_nonce[i%12];
+        l_nonce_char_11 = l_nonce[11];
+
+
+        l_enc_char = (l_pla_char+(l_key_sum+l_nonce_sum+l_key_char+l_nonce_char)) % 256;
+        a_out[i] = static_cast<uint8_t>(l_enc_char);
+
+        l_key_char = (l_key_char+l_enc_char+l_nonce_char_11+l_nonce_sum) % 256;
+        l_key[f_key_index] = static_cast<uint8_t>(l_key_char);
+        if(i>0)
         {
-            NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
-        }*/
-        a_out[i] = a_plainText[i]+(l_key_sum+l_nonce_sum+l_key[i%32]+l_nonce[i%12]);
-        l_key[i%32]+=a_out[i]+l_nonce[11]+l_nonce_sum;
+            f_nonce_index = (i-1)%12;
+            l_nonce_char = l_nonce[f_nonce_index];
+            l_nonce_char = (l_nonce_char+l_key_char) % 256;
+            l_nonce[f_nonce_index] =  static_cast<uint8_t>(l_nonce_char);
+        }
         NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
     }
 }
@@ -342,21 +380,41 @@ void bree256_do_decrypt(const unsigned char* a_encryptedText,size_t a_textSize,b
 {
     bree256_nonce l_nonce;
     bree256_key l_key;
-    uint8_t l_key_sum = 0;
-    uint8_t l_nonce_sum = 0;
+    int16_t l_key_sum = 0;
+    int16_t l_nonce_sum = 0;
+    int16_t l_enc_char = 0;
+    int16_t l_pla_char = 0;
+    int16_t l_key_char = 0;
+    int16_t l_nonce_char = 0;
+    int16_t l_nonce_char_11 = 0;
+    int f_nonce_index = 0;
+    int f_key_index = 0;
     NONCE_L_INIT(l_nonce,a_nonce)
     KEY_L_INIT(l_key,a_key)
     KEY_SUM(l_key_sum,a_key)
-    NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
     NONCE_SUM(l_nonce_sum,l_nonce);
     for(int i=a_textSize-1; i>=0; i--)
     {
-       /* if((i % 4)==0)
+
+
+        f_key_index = i%32;
+        l_enc_char = a_encryptedText[i];
+        l_key_char = l_key[f_key_index];
+        l_nonce_char = l_nonce[i%12];
+        l_nonce_char_11 = l_nonce[11];
+        l_pla_char = (l_enc_char-(l_key_sum+l_nonce_sum+l_key_char+l_nonce_char)) %256;
+
+        a_out[i] = static_cast<uint8_t>(l_pla_char);
+       l_key_char =(l_key_char+l_enc_char+l_nonce_char_11+l_nonce_sum) % 256;
+       l_key[f_key_index] = l_key_char;
+
+        if(i>0)
         {
-            NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
-        }*/
-        a_out[i] = a_encryptedText[i]-(l_key_sum+l_nonce_sum+l_key[i%32]+l_nonce[i%12]);
-        l_key[i%32]+=a_encryptedText[i]+l_nonce[11]+l_nonce_sum;
+            f_nonce_index = (i-1)%12;
+            l_nonce_char = l_nonce[f_nonce_index];
+            l_nonce_char = (l_nonce_char+l_key_char) % 256;
+            l_nonce[f_nonce_index] =  static_cast<uint8_t>(l_nonce_char);
+        }
         NONCE_KEY_BLOCK_ROUND(l_nonce,l_key)
     }
 }

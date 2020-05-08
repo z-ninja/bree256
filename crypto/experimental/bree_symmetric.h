@@ -30,7 +30,6 @@ void bree256_do_encrypt_message(const unsigned char*a_plainText,size_t a_textSiz
 size_t bree256_do_decrypt_message(const unsigned char*a_encryptedText,size_t a_textSize,bree256_key a_shared_key,bree256_nonce a_nonce,unsigned char*a_out);
 void bree256_do_encrypt(const unsigned char*a_plainText,size_t a_textSize,bree256_key a_key,bree256_nonce a_nonce,unsigned char*a_out);
 void bree256_do_decrypt(const unsigned char*a_encryptedText,size_t a_textSize,bree256_key a_key,bree256_nonce a_nonce,unsigned char*a_out);
-void HexDump(const unsigned char* buf, size_t buf_len);
 }/// experimental
 }/// bree
 #endif // BREE_SYMMETRIC_H
